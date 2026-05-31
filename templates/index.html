@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NSE Option-Chain OI Tracker</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a2027;
+    --border: #2a3441;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --amber: #d29922;
+    --itm: rgba(210, 153, 34, 0.07);
+    --atm: rgba(88, 166, 255, 0.16);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 20px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  h1 { margin: 0; font-size: 20px; }
+  .meta { color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 0; flex-wrap: wrap; }
+  .tab {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-radius: 6px 6px 0 0;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .tab.tab-chain { color: var(--accent); }
+  .tab.active {
+    background: var(--accent);
+    color: #0d1117;
+    border-color: var(--accent);
+  }
+  .tab-sep { width: 14px; }
+  .toolbar { display: flex; gap: 8px; margin-left: auto; }
+  .btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn:hover { background: var(--border); }
+  .btn-primary {
+    background: var(--accent);
+    color: #0d1117;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .panel-body {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 0 6px 6px 6px;
+    overflow: auto;
+    max-height: 82vh;
+  }
+  .chain-meta {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: #161b22;
+    z-index: 3;
+  }
+  .chain-meta b { color: var(--text); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td {
+    padding: 8px 10px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  th {
+    background: #161b22;
+    color: var(--muted);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    text-align: right;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  /* --- shared grouped-header table styling (chain + aggregate) --- */
+  .grp-call { background: #142033; color: var(--accent); }
+  .grp-strike { background: #20262e; color: var(--text); }
+  .grp-put { background: #142033; color: var(--accent); }
+  th.sub { top: 33px; }                    /* second header row sticks below group row */
+  td.strike {
+    text-align: center; font-weight: 700; background: #20262e; color: var(--text);
+  }
+  td.obs-cell { text-align: center; }
+  tr.atm-row td { background: var(--atm); }
+  tr.atm-row td.strike { background: var(--accent); color: #0d1117; }
+
+  /* --- aggregate table --- */
+  .agg th { text-align: center; }
+  .agg td { text-align: right; }
+  .agg th:first-child, .agg td:first-child { text-align: left; }
+  tr.kind-15m {
+    background: rgba(88, 166, 255, 0.08);
+    border-left: 3px solid var(--accent);
+  }
+  tr.kind-15m td:first-child { padding-left: 7px; }
+
+  /* --- chain table --- */
+  .chain th { text-align: center; }
+  .chain td { text-align: right; }
+  tr.itm-call td.call-side { background: var(--itm); }
+  tr.itm-put  td.put-side  { background: var(--itm); }
+
+  .obs { font-weight: 600; padding: 4px 8px; border-radius: 4px; display: inline-block; font-size: 12px; }
+  .obs-long-buildup    { background: rgba(63,185,80,.18); color: var(--green); }
+  .obs-short-covering  { background: rgba(210,153,34,.18); color: var(--amber); }
+  .obs-short-buildup   { background: rgba(248,81,73,.18); color: var(--red); }
+  .obs-long-unwinding  { background: rgba(248,81,73,.10); color: #ff9b94; }
+  .obs-sideways        { background: rgba(139,148,158,.18); color: var(--muted); }
+  .obs-first, .obs-none { color: var(--muted); }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  .badge {
+    background: var(--border); color: var(--muted);
+    padding: 2px 6px; border-radius: 3px; font-size: 10px;
+    margin-left: 6px; text-transform: uppercase;
+  }
+  .badge-15m { background: var(--accent); color: #0d1117; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>NSE Option-Chain OI Tracker</h1>
+    <div class="meta" id="meta">Loading…</div>
+  </div>
+  <div class="meta" style="text-align: right;">
+    Auto-refresh every 30 s · NSE poll every 3 min<br>
+    Chain pages update in place · Aggregate pages append per snapshot
+  </div>
+</header>
+
+<div style="display:flex; align-items:flex-end; margin-bottom: 0;">
+  <div class="tabs" id="tabs">
+    {% for ix in indices %}
+      <button class="tab tab-chain {% if loop.first %}active{% endif %}"
+              data-tab="{{ ix }}-chain">{{ ix }}-chain</button>
+    {% endfor %}
+    <div class="tab-sep"></div>
+    {% for ix in indices %}
+      <button class="tab" data-tab="{{ ix }}">{{ ix }}</button>
+    {% endfor %}
+  </div>
+  <div class="toolbar">
+    <a class="btn" href="/api/manual_fetch" onclick="manualFetch(event)">Fetch now</a>
+    <a class="btn btn-primary" href="/download/xlsx">⬇ Download Excel</a>
+  </div>
+</div>
+
+<div id="panels">
+  {# ---- Chain panels (first / left) ---- #}
+  {% for ix in indices %}
+    <div class="panel-body" id="panel-{{ ix }}-chain"
+         {% if not loop.first %}style="display:none"{% endif %}>
+      <div class="chain-meta" id="chainmeta-{{ ix }}">Waiting for first snapshot…</div>
+      <table class="chain">
+        <thead>
+          <tr>
+            <th class="grp-call" rowspan="2">OBS</th>
+            <th class="grp-call" colspan="9">CALLS</th>
+            <th class="grp-strike" rowspan="2">STRIKE</th>
+            <th class="grp-put" colspan="9">PUTS</th>
+            <th class="grp-put" rowspan="2">OBS</th>
+          </tr>
+          <tr>
+            <th class="sub">OI</th><th class="sub">CHNG OI</th><th class="sub">VOLUME</th>
+            <th class="sub">IV</th><th class="sub">LTP</th>
+            <th class="sub">BID QTY</th><th class="sub">BID</th><th class="sub">ASK</th>
+            <th class="sub">ASK QTY</th>
+            <th class="sub">BID QTY</th><th class="sub">BID</th><th class="sub">ASK</th>
+            <th class="sub">ASK QTY</th><th class="sub">LTP</th>
+            <th class="sub">IV</th><th class="sub">VOLUME</th><th class="sub">CHNG OI</th>
+            <th class="sub">OI</th>
+          </tr>
+        </thead>
+        <tbody id="chain-{{ ix }}">
+          <tr><td colspan="21" class="empty">Waiting for first snapshot…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  {% endfor %}
+
+  {# ---- Aggregate panels (existing, trimmed columns) ---- #}
+  {% for ix in indices %}
+    <div class="panel-body" id="panel-{{ ix }}" style="display:none">
+      <div class="chain-meta" id="aggmeta-{{ ix }}">Waiting for first snapshot…</div>
+      <table class="agg">
+        <thead>
+          <tr>
+            <th rowspan="2">Time</th>
+            <th class="grp-call" rowspan="2">OBS (Call)</th>
+            <th class="grp-call" colspan="3">CALLS</th>
+            <th class="grp-strike" colspan="3">UNDERLYING</th>
+            <th class="grp-put" colspan="3">PUTS</th>
+            <th class="grp-put" rowspan="2">OBS (Put)</th>
+          </tr>
+          <tr>
+            <th class="sub">CE OI</th><th class="sub">Δ CE OI</th><th class="sub">CE Vol Total</th>
+            <th class="sub">Spot</th><th class="sub">Strike</th><th class="sub">PCR</th>
+            <th class="sub">PE Vol Total</th><th class="sub">Δ PE OI</th><th class="sub">PE OI</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-{{ ix }}">
+          <tr><td colspan="12" class="empty">Waiting for first snapshot…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  {% endfor %}
+</div>
+
+<script>
+  const indices = {{ indices | tojson }};
+
+  // Tab switching (chain + aggregate panels share the same show/hide).
+  document.getElementById("tabs").addEventListener("click", (e) => {
+    if (!e.target.classList.contains("tab")) return;
+    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+    e.target.classList.add("active");
+    const which = e.target.dataset.tab;
+    document.querySelectorAll(".panel-body").forEach(p => {
+      p.style.display = (p.id === "panel-" + which) ? "" : "none";
+    });
+  });
+
+  function obsClass(text) {
+    const t = (text || "").toLowerCase();
+    if (t.startsWith("long buildup"))    return "obs-long-buildup";
+    if (t.startsWith("short covering"))  return "obs-short-covering";
+    if (t.startsWith("short buildup"))   return "obs-short-buildup";
+    if (t.startsWith("long unwinding"))  return "obs-long-unwinding";
+    if (t.startsWith("sideways"))        return "obs-sideways";
+    return "obs-none";
+  }
+
+  function fmtNum(n, decimals) {
+    if (n === "" || n === null || n === undefined) return "—";
+    const num = Number(n);
+    if (isNaN(num)) return n;
+    return num.toLocaleString("en-IN", {
+      maximumFractionDigits: decimals ?? 2,
+      minimumFractionDigits: decimals ?? 0,
+    });
+  }
+
+  function signed(n, decimals) {
+    if (n === "" || n === null || n === undefined) return { txt: "—", cls: "" };
+    const num = Number(n);
+    if (isNaN(num)) return { txt: String(n), cls: "" };
+    const txt = (num > 0 ? "+" : "") +
+      num.toLocaleString("en-IN", {
+        maximumFractionDigits: decimals ?? 2,
+        minimumFractionDigits: decimals ?? 0,
+      });
+    return { txt, cls: num > 0 ? "pos" : (num < 0 ? "neg" : "") };
+  }
+
+  function renderAggregate(ix, rows) {
+    const tb = document.getElementById("tbody-" + ix);
+    const meta = document.getElementById("aggmeta-" + ix);
+    if (!rows.length) {
+      tb.innerHTML = '<tr><td colspan="12" class="empty">Waiting for first snapshot…</td></tr>';
+      meta.textContent = "Waiting for first snapshot…";
+      return;
+    }
+    const latest = rows[0];
+    meta.innerHTML =
+      `Expiry <b>${latest.expiry || "—"}</b> · Spot <b>${fmtNum(latest.spot, 2)}</b>` +
+      ` · ATM <b>${fmtNum(latest.atm_strike, 0)}</b> · PCR <b>${fmtNum(latest.pcr, 3)}</b>` +
+      ` · Updated <b>${(latest.time_frame || "").replace(" (15m)", "")}</b>`;
+    tb.innerHTML = rows.map(r => {
+      const dCE = signed(r.ce_oi_change);
+      const dPE = signed(r.pe_oi_change);
+      const ceObs = obsClass(r.ce_observation);
+      const peObs = obsClass(r.pe_observation);
+      const badge = r.kind === "15m"
+        ? '<span class="badge badge-15m">15m</span>' : '';
+      return `<tr class="kind-${r.kind}">
+        <td>${r.time_frame}${badge}</td>
+        <td class="obs-cell"><span class="obs ${ceObs}">${r.ce_observation || "—"}</span></td>
+        <td>${fmtNum(r.ce_oi)}</td>
+        <td class="${dCE.cls}">${dCE.txt}</td>
+        <td>${fmtNum(r.ce_vol_total)}</td>
+        <td>${fmtNum(r.spot, 2)}</td>
+        <td class="strike">${fmtNum(r.atm_strike, 0)}</td>
+        <td>${fmtNum(r.pcr, 3)}</td>
+        <td>${fmtNum(r.pe_vol_total)}</td>
+        <td class="${dPE.cls}">${dPE.txt}</td>
+        <td>${fmtNum(r.pe_oi)}</td>
+        <td class="obs-cell"><span class="obs ${peObs}">${r.pe_observation || "—"}</span></td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderChain(ix, chain) {
+    const tb = document.getElementById("chain-" + ix);
+    const meta = document.getElementById("chainmeta-" + ix);
+    if (!chain || !chain.rows || !chain.rows.length) {
+      tb.innerHTML = '<tr><td colspan="21" class="empty">Waiting for first snapshot…</td></tr>';
+      meta.textContent = "Waiting for first snapshot…";
+      return;
+    }
+    meta.innerHTML =
+      `Spot <b>${fmtNum(chain.spot, 2)}</b> · ATM <b>${fmtNum(chain.atm_strike, 0)}</b>` +
+      ` · Expiry <b>${chain.expiry || "—"}</b> · Updated <b>${chain.timestamp || "—"}</b>`;
+
+    const spot = Number(chain.spot);
+    tb.innerHTML = chain.rows.map(row => {
+      const ce = row.ce, pe = row.pe;
+      const ceObs = obsClass(row.ce_obs), peObs = obsClass(row.pe_obs);
+      const ceChgOi = signed(ce.chng_oi), peChgOi = signed(pe.chng_oi);
+      const isAtm = Number(row.strike) === Number(chain.atm_strike);
+      const itmCall = Number(row.strike) < spot;   // call ITM below spot
+      const itmPut  = Number(row.strike) > spot;   // put  ITM above spot
+      const cls = [
+        isAtm ? "atm-row" : "",
+        itmCall ? "itm-call" : "",
+        itmPut ? "itm-put" : "",
+      ].filter(Boolean).join(" ");
+      return `<tr class="${cls}">
+        <td class="obs-cell call-side">
+          <span class="obs ${ceObs}">${row.ce_obs}</span></td>
+        <td class="call-side">${fmtNum(ce.oi)}</td>
+        <td class="call-side ${ceChgOi.cls}">${ceChgOi.txt}</td>
+        <td class="call-side">${fmtNum(ce.vol)}</td>
+        <td class="call-side">${fmtNum(ce.iv, 2)}</td>
+        <td class="call-side">${fmtNum(ce.ltp, 2)}</td>
+        <td class="call-side">${fmtNum(ce.bid_qty)}</td>
+        <td class="call-side">${fmtNum(ce.bid, 2)}</td>
+        <td class="call-side">${fmtNum(ce.ask, 2)}</td>
+        <td class="call-side">${fmtNum(ce.ask_qty)}</td>
+        <td class="strike">${fmtNum(row.strike, 0)}</td>
+        <td class="put-side">${fmtNum(pe.bid_qty)}</td>
+        <td class="put-side">${fmtNum(pe.bid, 2)}</td>
+        <td class="put-side">${fmtNum(pe.ask, 2)}</td>
+        <td class="put-side">${fmtNum(pe.ask_qty)}</td>
+        <td class="put-side">${fmtNum(pe.ltp, 2)}</td>
+        <td class="put-side">${fmtNum(pe.iv, 2)}</td>
+        <td class="put-side">${fmtNum(pe.vol)}</td>
+        <td class="put-side ${peChgOi.cls}">${peChgOi.txt}</td>
+        <td class="put-side">${fmtNum(pe.oi)}</td>
+        <td class="obs-cell put-side">
+          <span class="obs ${peObs}">${row.pe_obs}</span></td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function refresh() {
+    try {
+      const [dataR, chainR, healthR] = await Promise.all([
+        fetch("/api/data").then(r => r.json()),
+        fetch("/api/chain").then(r => r.json()),
+        fetch("/api/health").then(r => r.json()),
+      ]);
+      const expiryStr = Object.entries(healthR.expiries || {})
+        .map(([k, v]) => `${k}=${v}`).join("  ·  ");
+      document.getElementById("meta").innerHTML =
+        `Now: ${healthR.now_ist.slice(0, 19).replace("T", " ")} IST · ` +
+        `Market <b>${healthR.market_open ? "OPEN" : "closed"}</b> · ` +
+        `Source: ${healthR.using_nselib ? "nselib" : "direct"} · ` +
+        `Rows: ${Object.entries(healthR.rows).map(([k, v]) => k + "=" + v).join(", ")}` +
+        (expiryStr ? `<br>Expiries: ${expiryStr}` : "");
+
+      indices.forEach(ix => {
+        renderAggregate(ix, dataR[ix] || []);
+        renderChain(ix, chainR[ix]);
+      });
+    } catch (e) {
+      document.getElementById("meta").textContent = "Error: " + e.message;
+    }
+  }
+
+  async function manualFetch(ev) {
+    ev.preventDefault();
+    await fetch("/api/manual_fetch");
+    await refresh();
+  }
+
+  refresh();
+  setInterval(refresh, 30000);
+</script>
+</body>
+</html>

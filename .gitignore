@@ -1,0 +1,7 @@
+venv/
+data/
+.gstack/
+debug_payload.json
+temp/
+__pycache__/
+*.pyc
